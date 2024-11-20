@@ -9,53 +9,87 @@
     <!-- Bootstrap CSS for responsive design -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
     <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
         #map {
-            height: 80vh;
-            width: 100%;
+            flex-grow: 1;
+            height: 60%;
         }
+
         .control-panel {
-            padding: 15px;
             background-color: #f8f9fa;
-            border-radius: 4px;
-            margin-bottom: 15px;
+            padding: 15px;
+            border-bottom: 1px solid #ddd;
+            z-index: 1000;
         }
+
+        .directions-container {
+            overflow-y: auto;
+            height: 40%;
+            background: #fff;
+            padding: 15px;
+            border-top: 1px solid #ddd;
+        }
+
         .status-message {
             margin-top: 10px;
             padding: 10px;
             border-radius: 4px;
             display: none;
         }
+
         .status-message.warning {
             background-color: #fff3cd;
             color: #856404;
             border: 1px solid #ffeeba;
         }
+
         .status-message.error {
             background-color: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+
+        @media (max-width: 576px) {
+            .control-panel {
+                padding: 10px;
+            }
+            .directions-container {
+                font-size: 14px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="control-panel">
-            <div class="row">
-                <div class="col-md-6">
-                    <select id="buildingSelect" class="form-select">
-                        <option value="">Pilih Gedung Tujuan</option>
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <div class="btn-container">
-                        <button id="refreshLocationBtn" class="btn btn-secondary">Perbarui Lokasi</button>
-                        <button id="getRouteBtn" class="btn btn-primary">Cari Rute</button>
-                    </div>
-                </div>
+    <!-- Control Panel -->
+    <div class="control-panel">
+        <div class="row g-2">
+            <div class="col-8">
+                <select id="buildingSelect" class="form-select">
+                    <option value="">Pilih Gedung Tujuan</option>
+                </select>
             </div>
-            <div id="statusMessage" class="status-message"></div>
+            <div class="col-4 d-flex gap-1">
+                <button id="refreshLocationBtn" class="btn btn-secondary w-50">Lokasi</button>
+                <button id="getRouteBtn" class="btn btn-primary w-50">Rute</button>
+            </div>
         </div>
-        <div id="map"></div>
+        <div id="statusMessage" class="status-message"></div>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Directions Container -->
+    <div class="directions-container d-none" id="directionsContainer">
+        <h5 class="text-center">Petunjuk Arah</h5>
+        <ul id="directionsList" class="list-unstyled"></ul>
     </div>
 
     <!-- Leaflet JS -->
@@ -70,7 +104,7 @@
 
         // Initialize the map
         function initializeMap() {
-            map = L.map('map').setView([-6.2000, 106.8400], 17); // Starting coordinates
+            map = L.map('map').setView([-6.2000, 106.8400], 17);
             L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 attribution: 'Map data &copy; <a href="https://www.esri.com/">Esri</a>'
             }).addTo(map);
@@ -80,16 +114,10 @@
         function getUserLocation() {
             if (navigator.geolocation) {
                 showStatus("Mendapatkan lokasi...", "warning");
-                const options = {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0
-                };
-
                 navigator.geolocation.getCurrentPosition(
                     updateUserLocation,
                     handleLocationError,
-                    options
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
             } else {
                 showStatus("Browser Anda tidak mendukung geolokasi.", "error");
@@ -98,37 +126,25 @@
 
         // Update user location on map
         function updateUserLocation(position) {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            userLocation = [lat, lng];
+            const { latitude, longitude } = position.coords;
+            userLocation = [latitude, longitude];
 
-            if (userMarker) {
-                map.removeLayer(userMarker);
-            }
+            if (userMarker) map.removeLayer(userMarker);
+            userMarker = L.marker(userLocation, { title: "Lokasi Anda" }).addTo(map);
 
-            userMarker = L.marker([lat, lng], { title: "Lokasi Anda" }).addTo(map);
-            map.setView([lat, lng], 17);
-            showStatus("Lokasi berhasil diperbarui", "warning");
-            setTimeout(() => hideStatus(), 3000);
+            map.setView(userLocation, 17);
+            showStatus("Lokasi berhasil diperbarui.", "warning");
+            setTimeout(hideStatus, 3000);
         }
 
         // Handle geolocation errors
         function handleLocationError(error) {
-            let message = "Error mendapatkan lokasi: ";
-            switch(error.code) {
-                case error.PERMISSION_DENIED:
-                    message += "Izin lokasi ditolak.";
-                    break;
-                case error.POSITION_UNAVAILABLE:
-                    message += "Informasi lokasi tidak tersedia.";
-                    break;
-                case error.TIMEOUT:
-                    message += "Waktu permintaan lokasi habis.";
-                    break;
-                default:
-                    message += "Error tidak diketahui.";
-            }
-            showStatus(message, "error");
+            const messages = {
+                [error.PERMISSION_DENIED]: "Izin lokasi ditolak.",
+                [error.POSITION_UNAVAILABLE]: "Informasi lokasi tidak tersedia.",
+                [error.TIMEOUT]: "Waktu permintaan lokasi habis."
+            };
+            showStatus(messages[error.code] || "Error tidak diketahui.", "error");
         }
 
         // Load GeoJSON data for buildings
@@ -137,25 +153,24 @@
                 const response = await fetch('data/buildings.geojson');
                 buildingsData = await response.json();
                 populateBuildingSelect();
-            } catch (error) {
+            } catch {
                 showStatus("Error memuat data GeoJSON", "error");
-                console.error('Error loading GeoJSON:', error);
             }
         }
 
         // Populate the dropdown with building names
         function populateBuildingSelect() {
             const select = document.getElementById('buildingSelect');
-            buildingsData.features.forEach(feature => {
+            buildingsData.features.forEach(({ properties, geometry }) => {
                 const option = document.createElement('option');
-                option.value = feature.properties.Tujuan; // Building name
-                option.textContent = feature.properties.Tujuan; // Displayed text in the dropdown
-                option.dataset.coords = JSON.stringify(feature.geometry.coordinates);
+                option.value = properties.Tujuan;
+                option.textContent = properties.Tujuan;
+                option.dataset.coords = JSON.stringify(geometry.coordinates);
                 select.appendChild(option);
             });
         }
 
-        // Show status message (e.g., success or error)
+        // Show status message
         function showStatus(message, type) {
             const statusDiv = document.getElementById('statusMessage');
             statusDiv.textContent = message;
@@ -163,40 +178,44 @@
             statusDiv.style.display = 'block';
         }
 
-        // Hide status message after a few seconds
+        // Hide status message
         function hideStatus() {
             document.getElementById('statusMessage').style.display = 'none';
         }
 
-        // Display route from user to selected building
+        // Display route and directions
         function displayRoute(selectedBuilding) {
             const coords = JSON.parse(selectedBuilding.dataset.coords);
 
-            if (destinationMarker) {
-                map.removeLayer(destinationMarker);
-            }
-            if (routeControl) {
-                routeControl.remove();
-            }
+            if (destinationMarker) map.removeLayer(destinationMarker);
+            if (routeControl) routeControl.remove();
 
-            destinationMarker = L.marker([coords[1], coords[0]], {
-                title: selectedBuilding.value
-            }).addTo(map).bindPopup(`<b>${selectedBuilding.value}</b>`).openPopup();
-
-            map.setView([coords[1], coords[0]], 17);
+            destinationMarker = L.marker([coords[1], coords[0]]).addTo(map);
 
             if (userLocation) {
                 routeControl = L.Routing.control({
-                    waypoints: [
-                        L.latLng(userLocation[0], userLocation[1]),
-                        L.latLng(coords[1], coords[0])
-                    ],
-                    routeWhileDragging: true
+                    waypoints: [L.latLng(userLocation), L.latLng(coords[1], coords[0])],
+                    routeWhileDragging: true,
+                    createMarker: () => null
+                }).on('routesfound', (e) => {
+                    displayDirections(e.routes[0].instructions);
                 }).addTo(map);
             }
         }
 
-        // Event listener for "Cari Rute" button
+        // Display turn-by-turn directions
+        function displayDirections(instructions) {
+            const directionsContainer = document.getElementById('directionsContainer');
+            const directionsList = document.getElementById('directionsList');
+            directionsContainer.classList.remove('d-none');
+
+            directionsList.innerHTML = instructions
+                .map(({ text }) => `<li>${text}</li>`)
+                .join('');
+        }
+
+        // Event listeners
+        document.getElementById('refreshLocationBtn').addEventListener('click', getUserLocation);
         document.getElementById('getRouteBtn').addEventListener('click', () => {
             const selectedBuilding = document.getElementById('buildingSelect').selectedOptions[0];
             if (selectedBuilding.value) {
@@ -206,10 +225,7 @@
             }
         });
 
-        // Refresh user location
-        document.getElementById('refreshLocationBtn').addEventListener('click', getUserLocation);
-
-        // Initialize map and load data when page is loaded
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             initializeMap();
             loadGeoJSONData();
@@ -218,3 +234,4 @@
     </script>
 </body>
 </html>
+
